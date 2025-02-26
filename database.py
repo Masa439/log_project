@@ -1,8 +1,17 @@
 import sqlite3
+import os
+
+# データベースのパスを `data/` フォルダ内に設定
+DB_FOLDER = "data"
+DB_NAME = "logs.db"
+DB_PATH = os.path.join(DB_FOLDER, DB_NAME)
+
+# `data/` フォルダが存在しない場合は作成
+if not os.path.exists(DB_FOLDER):
+    os.makedirs(DB_FOLDER)
 
 # データベースファイルを作成（なければ新規作成）
-DB_NAME = "logs.db"
-conn = sqlite3.connect(DB_NAME)
+conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
 # ログを保存するテーブルを作成
@@ -19,4 +28,4 @@ cursor.execute("""
 conn.commit()
 conn.close()
 
-print(f"データベース '{DB_NAME}' を作成しました！")
+print(f"データベース '{DB_PATH}' を作成しました！")

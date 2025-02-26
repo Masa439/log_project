@@ -1,7 +1,6 @@
-from flask import Flask, jsonify, request  # `request` を追加
-import sqlite3
 import os
-from datetime import datetime  # `datetime` を追加
+from flask import Flask, jsonify, request
+import sqlite3
 
 app = Flask(__name__)
 
@@ -12,16 +11,40 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "data", "logs.db")
 def get_logs():
     print("ログ取得リクエスト受信")
 
+    # クエリパラメータを取得
+    log_level = request.args.get("level")  # 例: "ERROR"
+    start_date = request.args.get("start")  # 例: "2025-02-20"
+    end_date = request.args.get("end")  # 例: "2025-02-23"
+
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         print("データベース接続成功")
 
-        cursor.execute("SELECT id, timestamp, log_level, message FROM logs ORDER BY timestamp DESC LIMIT 100")
+        # SQL クエリの動的生成
+        query = "SELECT id, timestamp, log_level, message FROM logs WHERE 1=1"
+        params = []
+
+        # ログレベルでフィルタリング
+        if log_level:
+            query += " AND log_level = ?"
+            params.append(log_level)
+
+        # 期間指定でフィルタリング
+        if start_date:
+            query += " AND timestamp >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND timestamp <= ?"
+            params.append(end_date)
+
+        query += " ORDER BY timestamp DESC LIMIT 100"
+
+        cursor.execute(query, params)
         logs = cursor.fetchall()
         conn.close()
-        
-        print(f"取得したログ件数: {len(logs)}")  # ← 追加
+
+        print(f"取得したログ件数: {len(logs)}")
 
         logs_list = [{"id": log[0], "timestamp": log[1], "log_level": log[2], "message": log[3]} for log in logs]
 
@@ -31,38 +54,93 @@ def get_logs():
         print(f"エラー発生: {e}")
         return jsonify({"error": str(e)}), 500
 
-
-# 🚀 `POST /logs` のエンドポイントを追加 🚀
-@app.route("/logs", methods=["POST"])
-def add_log():
-    print("ログ追加リクエスト受信")
-
-    data = request.get_json()
-    if not data or "log_level" not in data or "message" not in data:
-        print("リクエストデータが不正")
-        return jsonify({"error": "Invalid request"}), 400
-
-    log_level = data["log_level"]
-    message = data["message"]
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+@app.route("/logs", methods=["DELETE"])
+def delete_log():
+    log_id = request.args.get("id")
+    delete_all = request.args.get("all")
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO logs (timestamp, log_level, message) VALUES (?, ?, ?)",
-            (timestamp, log_level, message),
-        )
+
+        if delete_all == "true":
+            cursor.execute("DELETE FROM logs")
+            message = "All logs deleted successfully"
+        elif log_id:
+            cursor.execute("DELETE FROM logs WHERE id = ?", (log_id,))
+            message = f"Log with ID {log_id} deleted successfully"
+        else:
+            return jsonify({"error": "Invalid request. Provide 'id' or 'all=true'"}), 400
+
         conn.commit()
         conn.close()
-        
-        print(f"ログ追加成功: {log_level} - {message}")
-        return jsonify({"message": "Log added successfully"}), 201
+
+        return jsonify({"message": message}), 200
 
     except Exception as e:
-        print(f"エラー発生: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/logs", methods=["PUT"])
+def update_log():
+    data = request.get_json()
+    log_id = request.args.get("id")
+
+    if not log_id:
+        return jsonify({"error": "Missing 'id' parameter"}), 400
+
+    update_fields = []
+    params = []
+
+    if "log_level" in data:
+        update_fields.append("log_level = ?")
+        params.append(data["log_level"])
+
+    if "message" in data:
+        update_fields.append("message = ?")
+        params.append(data["message"])
+
+    if not update_fields:
+        return jsonify({"error": "No update fields provided"}), 400
+
+    params.append(log_id)
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        query = f"UPDATE logs SET {', '.join(update_fields)} WHERE id = ?"
+        cursor.execute(query, params)
+        conn.commit()
+        conn.close()
+
+        return jsonify({"message": f"Log with ID {log_id} updated successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/logs/stats", methods=["GET"])
+def get_log_stats():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # 全ログの総件数を取得
+        cursor.execute("SELECT COUNT(*) FROM logs")
+        total_logs = cursor.fetchone()[0]
+
+        # 各ログレベルの件数を取得
+        cursor.execute("SELECT log_level, COUNT(*) FROM logs GROUP BY log_level")
+        log_counts = cursor.fetchall()
+        conn.close()
+
+        log_level_counts = {level: count for level, count in log_counts}
+
+        return jsonify({
+            "total_logs": total_logs,
+            "log_levels": log_level_counts
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)  # ← 5001 に変更（5000 が AirPlay によって占有されていため）
+    app.run(debug=True, port=5001)
