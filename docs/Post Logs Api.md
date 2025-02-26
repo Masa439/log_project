@@ -1,161 +1,107 @@
-# `POST /logs` API の実装
+# POST /logs API ドキュメント
 
-このドキュメントでは、`POST /logs` エンドポイントの実装とその設計意図について詳しく説明します。
+このドキュメントでは、`POST /logs` エンドポイントの詳細について説明します。
 
----
+## **エンドポイント概要**
 
-## **目的**
-
-- ユーザーが新しいログ (`log_level` と `message`) を送信し、それをデータベースに保存する。
-- `timestamp` はサーバー側で自動生成する。
-- クライアントが不正なデータを送らないようバリデーションを行う。
-
----
-
-## **どのようにしてこのコードになったのか？**
-
-### **1️⃣ API ルートを定義**
-```python
-@app.route("/logs", methods=["POST"])
-```
-- `@app.route()` で `POST /logs` のルートを作成。
-- `methods=["POST"]` を指定し、GET ではアクセスできないように制限。
-
-### **2️⃣ クライアントのデータを取得・バリデーション**
-```python
-data = request.get_json()
-if not data or "log_level" not in data or "message" not in data:
-    return jsonify({"error": "Invalid request"}), 400
-```
-- `request.get_json()` で JSON を取得。
-- `log_level` と `message` が含まれているかチェック。
-- もし `log_level` や `message` が無ければ `400 Bad Request` を返す。
-
-### **3️⃣ `timestamp` をサーバー側で作成**
-```python
-timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-```
-- `datetime.now()` で現在の時刻を取得し、適切なフォーマットに変換。
-- クライアント側から送信させないことで、改ざんを防ぐ。
-
-### **4️⃣ データベースにログを追加**
-```python
-try:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO logs (timestamp, log_level, message) VALUES (?, ?, ?)",
-        (timestamp, log_level, message),
-    )
-    conn.commit()
-    conn.close()
-    return jsonify({"message": "Log added successfully"}), 201
-except Exception as e:
-    return jsonify({"error": str(e)}), 500
-```
-- `sqlite3.connect(DB_PATH)` でデータベースに接続。
-- `INSERT INTO logs ...` を実行し、新しいログを挿入。
-- `try-except` を使用し、エラーが発生した場合 `500 Internal Server Error` を返す。
+- **URL:** `/logs`
+- **メソッド:** `POST`
+- **機能:** 新しいログを作成し、データベースに保存する。
+- **リクエスト形式:** JSON
+- **レスポンス形式:** JSON
 
 ---
 
-## **テスト方法**
+## **リクエストフォーマット**
 
-### **1️⃣ サーバーを起動**
-```sh
-python3 app.py
-```
-
-### **2️⃣ `POST /logs` のテスト（curl を使用）**
-```sh
-curl -X POST http://127.0.0.1:5001/logs -H "Content-Type: application/json" -d '{
+```json
+{
     "log_level": "INFO",
     "message": "This is a test log."
-}'
+}
 ```
-**成功時のレスポンス**
+
+### **リクエストパラメータ**
+| パラメータ名 | 型   | 必須 | 説明 |
+|-------------|------|------|------|
+| `log_level` | `string` | ✔ | ログのレベル (`INFO`, `WARNING`, `ERROR`, `DEBUG` など) |
+| `message`   | `string` | ✔ | ログの内容 |
+
+---
+
+## **レスポンスフォーマット**
+
+### **成功時 (201 Created)**
 ```json
 {
     "message": "Log added successfully"
 }
 ```
 
-### **3️⃣ データベースにデータが入ったか確認**
-```sh
-sqlite3 data/logs.db "SELECT * FROM logs;"
-```
-
-### **4️⃣ エラーパターンテスト**
-#### **❌ `log_level` なし → `400 Bad Request`**
-```sh
-curl -X POST http://127.0.0.1:5001/logs -H "Content-Type: application/json" -d '{
-    "message": "Missing log level."
-}'
-```
-**レスポンス**
+### **エラー時 (400 Bad Request)**
 ```json
 {
     "error": "Invalid request"
 }
 ```
 
-#### **❌ `message` なし → `400 Bad Request`**
-```sh
-curl -X POST http://127.0.0.1:5001/logs -H "Content-Type: application/json" -d '{
-    "log_level": "ERROR"
-}'
-```
-**レスポンス**
+### **エラー時 (500 Internal Server Error)**
 ```json
 {
-    "error": "Invalid request"
+    "error": "Database error details"
 }
 ```
 
-#### **❌ JSON ではなく文字列を送信 → `400 Bad Request`**
-```sh
-curl -X POST http://127.0.0.1:5001/logs -H "Content-Type: application/json" -d 'Invalid Data'
-```
-**レスポンス**
-```json
-{
-    "error": "Invalid request"
-}
-```
+---
 
-#### **✅ 正常データと異常データの連続送信テスト**
+## **使用例 (テスト方法)**
+
+### **cURL コマンド (Linux/macOS)**
 ```sh
 curl -X POST http://127.0.0.1:5001/logs -H "Content-Type: application/json" -d '{
-    "log_level": "DEBUG",
-    "message": "This is a debug log."
-}'
-
-curl -X POST http://127.0.0.1:5001/logs -H "Content-Type: application/json" -d '{
-    "log_level": "ERROR"
+    "log_level": "INFO",
+    "message": "This is a test log."
 }'
 ```
-**最初のリクエストは成功し、2つ目は `400 Bad Request` になることを確認する。**
+
+### **PowerShell コマンド (Windows)**
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:5001/logs" -Method POST -Body (@{
+    log_level="INFO";
+    message="This is a test log."
+} | ConvertTo-Json) -ContentType "application/json"
+```
+
+---
+
+## **処理の流れ (実装概要)**
+
+1. **リクエストデータの取得**
+    - `request.get_json()` で JSON データを取得。
+    - `log_level` と `message` が含まれているかチェック。
+
+2. **データベースにデータを挿入**
+    - `sqlite3.connect()` でデータベースを開く。
+    - `INSERT INTO logs (log_level, message) VALUES (?, ?)` を実行。
+    - `commit()` して変更を保存。
+
+3. **成功レスポンスの返却**
+    - 正常に追加された場合、`201 Created` を返す。
+    - エラー発生時は `500 Internal Server Error` を返し、エラーメッセージを含める。
 
 ---
 
 ## **トラブルシューティング**
 
-### **1. `logs` テーブルが存在しないエラー**
-- データベースのセットアップ (`database.py`) を実行したか確認。
-- `sqlite3 logs.db` を開き、`SELECT * FROM logs;` でデータがあるか確認。
+### **1. `curl` のレスポンスが `400 Bad Request` になる**
+**原因:** `log_level` や `message` のパラメータが不足している。
+**対策:** 正しい JSON 形式でリクエストを送信する。
 
-### **2. クライアントが `400 Bad Request` を受け取る**
-- 送信している JSON が正しいか確認。
-- `log_level` や `message` を必ず含めること。
-- 例:
-```json
-{
-    "log_level": "ERROR",
-    "message": "An error occurred."
-}
-```
+### **2. `500 Internal Server Error` になる**
+**原因:** データベースエラーの可能性。
+**対策:** `logs.db` のパスを確認し、DB が正しくセットアップされているか確認。
 
 ---
 
-
+このドキュメントは随時更新されます。
 

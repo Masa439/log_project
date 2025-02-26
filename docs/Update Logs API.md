@@ -1,75 +1,110 @@
-# PUT /logs API
+# UPDATE /logs API ドキュメント
 
-## **概要**
-`PUT /logs` API は、特定のログの `log_level` や `message` を更新するためのエンドポイントです。
+このドキュメントでは、`PUT /logs` エンドポイントの詳細について説明します。
 
-## **どのようにしてこのコードになったのか**
-1. クエリパラメータ `id` を取得し、更新対象のログを特定する。
-2. `log_level` や `message` のどちらかがリクエストボディに含まれている場合、それを更新対象とする。
-3. SQLite を使ってデータベースの該当ログを更新。
-4. 更新が成功したらメッセージを返す。
+## **エンドポイント概要**
 
-## **実装コード**
-```python
-@app.route("/logs", methods=["PUT"])
-def update_log():
-    data = request.get_json()
-    log_id = request.args.get("id")
+- **URL:** `/logs?id={log_id}`
+- **メソッド:** `PUT`
+- **機能:** 指定された `id` のログを更新する。
+- **リクエスト形式:** JSON
+- **レスポンス形式:** JSON
 
-    if not log_id:
-        return jsonify({"error": "Missing 'id' parameter"}), 400
+---
 
-    update_fields = []
-    params = []
+## **リクエストフォーマット**
 
-    if "log_level" in data:
-        update_fields.append("log_level = ?")
-        params.append(data["log_level"])
-
-    if "message" in data:
-        update_fields.append("message = ?")
-        params.append(data["message"])
-
-    if not update_fields:
-        return jsonify({"error": "No update fields provided"}), 400
-
-    params.append(log_id)
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        query = f"UPDATE logs SET {', '.join(update_fields)} WHERE id = ?"
-        cursor.execute(query, params)
-        conn.commit()
-        conn.close()
-
-        return jsonify({"message": f"Log with ID {log_id} updated successfully"}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+```json
+{
+    "log_level": "DEBUG",
+    "message": "Updated log message"
+}
 ```
 
-## **テスト方法**
-### **1. ログの `log_level` を変更**
+### **リクエストパラメータ**
+| パラメータ名 | 型   | 必須 | 説明 |
+|-------------|------|------|------|
+| `log_level` | `string` | ✖ | ログのレベル (`INFO`, `WARNING`, `ERROR`, `DEBUG` など) |
+| `message`   | `string` | ✖ | 更新するメッセージ内容 |
+
+※ `log_level` または `message` のどちらか一方が必須。
+
+---
+
+## **レスポンスフォーマット**
+
+### **成功時 (200 OK)**
+```json
+{
+    "message": "Log with ID 123 updated successfully"
+}
+```
+
+### **エラー時 (400 Bad Request)**
+```json
+{
+    "error": "Missing 'id' parameter"
+}
+```
+
+### **エラー時 (500 Internal Server Error)**
+```json
+{
+    "error": "Database error details"
+}
+```
+
+---
+
+## **使用例 (テスト方法)**
+
+### **cURL コマンド (Linux/macOS)**
 ```sh
-Invoke-RestMethod -Uri "http://127.0.0.1:5001/logs?id=123" -Method PUT -Body (@{log_level="ERROR"} | ConvertTo-Json) -ContentType "application/json"
+curl -X PUT "http://127.0.0.1:5001/logs?id=123" -H "Content-Type: application/json" -d '{
+    "log_level": "DEBUG",
+    "message": "Updated log message"
+}'
 ```
-📌 **ID `123` のログの `log_level` を `ERROR` に変更**
 
-### **2. `message` のみ変更**
-```sh
-Invoke-RestMethod -Uri "http://127.0.0.1:5001/logs?id=123" -Method PUT -Body (@{message="Updated message"} | ConvertTo-Json) -ContentType "application/json"
+### **PowerShell コマンド (Windows)**
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:5001/logs?id=123" -Method PUT -Body (@{
+    log_level="DEBUG";
+    message="Updated log message"
+} | ConvertTo-Json) -ContentType "application/json"
 ```
-📌 **ID `123` の `message` を `Updated message` に変更**
 
-### **3. 両方 (`log_level` & `message`) を変更**
-```sh
-Invoke-RestMethod -Uri "http://127.0.0.1:5001/logs?id=123" -Method PUT -Body (@{log_level="DEBUG"; message="New debug message"} | ConvertTo-Json) -ContentType "application/json"
-```
-📌 **ID `123` の `log_level` を `DEBUG`、`message` を `New debug message` に変更**
+---
 
-## **今後の改善点**
-- `updated_at` のタイムスタンプを追加し、更新時刻を記録する。
-- 変更前のデータと変更後のデータを返すようにする。
-- ログが存在しない場合、エラーを返す処理を追加する。
+## **処理の流れ (実装概要)**
+
+1. **リクエストデータの取得**
+    - `request.get_json()` で JSON データを取得。
+    - `id` パラメータが存在するかチェック。
+    - `log_level` または `message` が含まれているかチェック。
+
+2. **データベースの更新処理**
+    - `sqlite3.connect()` でデータベースを開く。
+    - `UPDATE logs SET log_level = ?, message = ? WHERE id = ?` を実行。
+    - `commit()` して変更を保存。
+
+3. **成功レスポンスの返却**
+    - 正常に更新された場合、`200 OK` を返す。
+    - エラー発生時は `500 Internal Server Error` を返し、エラーメッセージを含める。
+
+---
+
+## **トラブルシューティング**
+
+### **1. `curl` のレスポンスが `400 Bad Request` になる**
+**原因:** `id` パラメータが指定されていない、または `log_level` / `message` が不足している。
+**対策:** 正しい JSON 形式でリクエストを送信する。
+
+### **2. `500 Internal Server Error` になる**
+**原因:** データベースエラーの可能性。
+**対策:** `logs.db` のパスを確認し、DB が正しくセットアップされているか確認。
+
+---
+
+このドキュメントは随時更新されます。
 
